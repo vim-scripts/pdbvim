@@ -1,5 +1,6 @@
 "Author Mathew Yeates
 "Based on gdbvim by Tomas Zellerin
+
 let g:runargs=""
 
 if exists("loaded_pdbvim")
@@ -120,6 +121,10 @@ function Pdb_command(cmd, ...)
 endfun
 
 
+function Pdb_exit()
+silent exec ":redir! >".s:fifo_name ."|echon \"".'EXIT'."\n\"|redir END "
+qa
+endfunction
 
 " Mappings are dependant on Leader at time of loading the macro.
 function s:Pdb_shortcuts()
@@ -141,8 +146,11 @@ function s:Pdb_shortcuts()
     nmenu Pdb.Frame.Down :Pdb d<CR>
     nmenu Pdb.Set\ break :call Pdb_command("b ".bufname("%").":".line("."))<CR>
     nmenu Pdb.-Sep- :
-    nmenu Pdb.Command :<C-U>Pdb 
+    nmenu Pdb.PdbCommand :<C-U>Pdb 
     nmenu Pdb.Python :call Pdb_python()<CR>
+    nmenu Pdb.-Sep- :
+    nmenu Pdb.Exit :call Pdb_exit()<CR>
+
 
 endfunction
 

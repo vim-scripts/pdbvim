@@ -1,20 +1,38 @@
-#!/bin/python
+#!/usr/bin/env python
+
 #Author: Mathew Yeates
 #Based on gdbvim by Thomas Zellerin
+#version 0.3
+#added fixes from Marius Gedminas
+#general cleanup
+#added Exit menu function
 import sys
 import os
 import tempfile
 import signal
 import re
+import time
 
-from optik import OptionParser,make_option
-from optik.option import Option
+def check_for_server(servername):
+    servername = servername.upper()
+    fp = os.popen("gvim --serverlist", "r")
+    for line in fp:
+        if line.strip() == servername:
+            return 1
+    return 0
+
+try:
+    from optik import OptionParser,make_option
+    from optik.option import Option
+except:
+    print 'The package Optik is required which can be downloaded from'
+    print 'http://optik.sourceforge.net'
+    sys.exit(1)
 
 
 def input_tty():
         while 1:
             s=raw_input("")
-            #print 'sending ',list(s)
             os.write(pdb_wtr,s + "\n")
 
 fpat=".*filename=(.*)"
@@ -24,7 +42,6 @@ lmat=re.compile(lpat)
 
 def vim_call(msg):
     send="gvim  --servername " + options.server + " --remote-send \":call " + msg + "<CR>\""
-    #print send
     os.system(send)
 def worker():
     '''read from pdb, send commands to vim'''
@@ -33,9 +50,6 @@ def worker():
     sys.stderr.flush()
     s=os.read(pdb_rdr,1024)
     while s != "":
-        #print list(s)
-        #print list(s.strip())
-        #print list(s)
         slines=s.split("\n")
         filename=None
         lineno=None
@@ -71,6 +85,9 @@ def input_pipe():
     while 1:
         fp=os.open(named_pipe,os.O_RDONLY)
         inline=os.read(fp,1024)
+        if inline.startswith("EXIT"):
+            os.kill(gdb_pid,signal.SIGKILL)
+            sys.exit(2)
         print inline,
         while inline != "":
             os.write(pdb_wtr,inline)
@@ -96,16 +113,21 @@ class MyOptionParser(OptionParser):
         OptionParser.__init__(self,usage,option_list,option_class,
             version,conflict_handler, description,formatter,add_help_option )
     def error(self,msg):
-        print 'Usage: pdbvim -sSERVER | --server=SERVER '
+        print 'Usage: pdbvim [-sSERVER | --server=SERVER] [gvim args] '
         sys.exit(1)
 
 usage="Usage: %prog [options]"
 parser = MyOptionParser(option_list=option_list,usage=usage)
                         
 (options,args) = parser.parse_args()
+
 if not  options.server:
-    print 'Usage: pdbvim -sSERVER | --server=SERVER '
+    options.server='PDBVIMSERVER'
+
+if check_for_server(options.server):
+    print 'A server named ',options.server," is already running"
     sys.exit(1)
+
 fp=os.popen("gvim --serverlist","r")
 for line in fp:
     if line.strip() == options.server.upper():
@@ -117,10 +139,23 @@ import string
 args=string.join(args)
 if  os.system("gvim --servername " + options.server + " " + args):
     print 'Couldnt start server ',options.server
-    sys.exit(2)
+    sys.exit(1)
+
+
+#wait for server to start
+while not check_for_server(options.server):
+    print "Waiting for server . . ."
+    time.sleep(1)
 
 named_pipe=tempfile.mktemp()
-os.system("mkfifo -m 600 " + named_pipe )
+try:
+    os.system("mkfifo -m 600 " + named_pipe )
+except:
+    try:
+        os.system("mknod -m 600 -p " + named_pipe )  
+    except:
+        print 'Both mkfifo and mknod failed to execute on your system'
+        sys.exit(2)
 
 
 worker_rdr, pdb_wtr=os.pipe()
@@ -134,7 +169,7 @@ if gdb_pid == 0:
     os.dup2(worker_wtr,1)
     os.dup2(worker_wtr,2)
     os.dup2(worker_rdr,0)
-    os.execlp("python","python","-i")
+    os.execlp("python","python","-i","-c","import sys;sys.ps1='>>> '")
 
 os.close(worker_rdr)
 os.close(worker_wtr)
