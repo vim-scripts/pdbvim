@@ -1,0 +1,20 @@
+*pdbvim.txt*	Plugin for visual pdb debugging
+
+Usage: pdbvim -s SERVERNAME [gvim args]
+SERVERNAME- a unique name for the gvim server
+
+Example Interaction:
+1) In an xterm type "pdbvim -s myserver foo.py"
+[ a gvim window opens showing the file foo.py ]
+2) In the xterm window, at the prompt, type import foo
+3) Menu Pdb-Execution-Run
+[ a dialog box appears ]
+4) In the dialog box, type foo.run() then hit the Okay button
+[ In the xterm window, note that the commands were executed ]
+5) Menu Pdb-Execution-Next
+6) Menu Pdb-Execution-Step
+[ the gvim window now shows the currently executuing line ]
+7) You can now set breakpoints, step, continue, etc
+
+
+

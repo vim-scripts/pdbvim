@@ -1,0 +1,167 @@
+#!/bin/python
+#Author: Mathew Yeates
+#Based on gdbvim by Thomas Zellerin
+import sys
+import os
+import tempfile
+import signal
+import re
+
+from optik import OptionParser,make_option
+from optik.option import Option
+
+
+def input_tty():
+        while 1:
+            s=raw_input("")
+            #print 'sending ',list(s)
+            os.write(pdb_wtr,s + "\n")
+
+fpat=".*filename=(.*)"
+fmat=re.compile(fpat)
+lpat=".*lineno=([0-9]*).*"
+lmat=re.compile(lpat)
+
+def vim_call(msg):
+    send="gvim  --servername " + options.server + " --remote-send \":call " + msg + "<CR>\""
+    #print send
+    os.system(send)
+def worker():
+    '''read from pdb, send commands to vim'''
+    vim_call('Pdb_interf_init(\\\"' + named_pipe + '\\\")')
+    sys.stdout.flush()
+    sys.stderr.flush()
+    s=os.read(pdb_rdr,1024)
+    while s != "":
+        #print list(s)
+        #print list(s.strip())
+        #print list(s)
+        slines=s.split("\n")
+        filename=None
+        lineno=None
+
+        inpdb=1
+        for line in slines:
+            if line.startswith(">>>"):
+                inpdb=0
+                break
+            fmatch=fmat.match(line)
+            if fmatch:
+                filename=fmatch.group(1)
+            lmatch=lmat.match(line)
+            if lmatch:
+                lineno=lmatch.group(1)
+            
+        print s,
+        if not inpdb:
+            vim_call("Pdb_Done()")
+        if filename and lineno and filename != "<string>" and lineno > 0:
+            vim_call("Pdb_CurrFileLine(\\\"" + filename + "\\\"," + lineno + ")")
+
+        #process line from pdb
+        sys.stdout.flush()
+        sys.stderr.flush()
+        s=os.read(pdb_rdr,1024)
+    os.close(pdb_rdr)
+    os.close(pdb_wtr)
+
+
+def input_pipe():
+    '''read from vim. write to pdb'''
+    while 1:
+        fp=os.open(named_pipe,os.O_RDONLY)
+        inline=os.read(fp,1024)
+        print inline,
+        while inline != "":
+            os.write(pdb_wtr,inline)
+            inline=os.read(fp,1024)
+        os.close(fp)
+
+
+option_list=[
+        make_option("-s","--server",type="string",dest="server",
+                    help="Unique server name"),
+            ]
+
+class MyOptionParser(OptionParser):
+    def __init__(self,
+            usage=None,
+                  option_list=None,
+                  option_class=Option,
+                  version=None,
+                  conflict_handler="error",
+                  description=None,
+                  formatter=None,
+                  add_help_option=1):
+        OptionParser.__init__(self,usage,option_list,option_class,
+            version,conflict_handler, description,formatter,add_help_option )
+    def error(self,msg):
+        print 'Usage: pdbvim -sSERVER | --server=SERVER '
+        sys.exit(1)
+
+usage="Usage: %prog [options]"
+parser = MyOptionParser(option_list=option_list,usage=usage)
+                        
+(options,args) = parser.parse_args()
+if not  options.server:
+    print 'Usage: pdbvim -sSERVER | --server=SERVER '
+    sys.exit(1)
+fp=os.popen("gvim --serverlist","r")
+for line in fp:
+    if line.strip() == options.server.upper():
+        print 'A server named ',options.server," is already running"
+        sys.exit(1)
+
+args=map(str,args)
+import string
+args=string.join(args)
+if  os.system("gvim --servername " + options.server + " " + args):
+    print 'Couldnt start server ',options.server
+    sys.exit(2)
+
+named_pipe=tempfile.mktemp()
+os.system("mkfifo -m 600 " + named_pipe )
+
+
+worker_rdr, pdb_wtr=os.pipe()
+pdb_rdr, worker_wtr=os.pipe()
+#RL_RDR, RL_WTR=os.pipe()
+
+gdb_pid=os.fork()
+if gdb_pid == 0:
+    os.close(pdb_rdr)
+    os.close(pdb_wtr)
+    os.dup2(worker_wtr,1)
+    os.dup2(worker_wtr,2)
+    os.dup2(worker_rdr,0)
+    os.execlp("python","python","-i")
+
+os.close(worker_rdr)
+os.close(worker_wtr)
+
+input_tty_pid=os.fork()
+if input_tty_pid == 0:
+    input_tty()
+
+input_pipe_pid=os.fork()
+if input_pipe_pid==0:
+    input_pipe()
+
+
+os.write(pdb_wtr,"import pdb" + "\n")
+os.write(pdb_wtr,"import sys" + "\n")
+worker()
+os.kill(input_pipe_pid,signal.SIGKILL)
+os.kill(gdb_pid,signal.SIGKILL)
+os.kill(input_tty_pid,signal.SIGKILL)
+os.wait()
+
+
+
+
+
+
+
+
+
+
